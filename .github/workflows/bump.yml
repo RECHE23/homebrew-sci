@@ -23,6 +23,14 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Register this checkout as the reche23/sci tap so the formula can be addressed BY NAME
+          # below -- modern brew refuses `audit`/`install` by path ("Calling brew audit [path ...]
+          # is disabled!"), discovered when this job's own pre-push validation correctly blocked a
+          # 2026.7.33 bump on exactly that error (fail-closed, no broken formula ever pushed). The
+          # symlink exposes the WORKING TREE, so the perl-edited (not yet committed) formula below
+          # is what audit/install/test actually see -- no commit-then-validate reordering needed.
+          tapdir="$(brew --repository)/Library/Taps/reche23/homebrew-sci"
+          mkdir -p "$(dirname "$tapdir")" && ln -s "$PWD" "$tapdir"
           for f in Formula/*.rb; do
             name=$(basename "$f" .rb)
             cur_url=$(sed -nE 's/.*url "([^"]+)".*/\1/p' "$f" | head -1)
@@ -42,9 +50,10 @@ jobs:
             # Self-validate BEFORE pushing: push-direct has no human review and no PR-triggered CI
             # to catch a broken formula (this repo has none), so this IS the safety net —
             # lint (audit), a real build from the new source, and the formula's own test block.
-            brew audit --strict "$f"
-            brew install --build-from-source "$f"
-            brew test "$name"
+            # By NAME via the tap-symlink above, not by path (see the comment on that symlink).
+            brew audit --strict "reche23/sci/$name"
+            brew install --build-from-source "reche23/sci/$name"
+            brew test "reche23/sci/$name"
             git add "$f" && git commit -m "$name $latest"
             git push origin HEAD:main
           done
