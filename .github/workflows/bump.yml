@@ -1,23 +1,28 @@
 name: Bump formulae
 on:
   schedule:
-    - cron: "0 6 * * *"        # daily ~06:00 UTC
+    - cron: "0 6 * * *"        # daily ~06:00 UTC — net filet if a repository_dispatch is ever missed
   workflow_dispatch: {}
+  repository_dispatch:
+    types: [upstream-release]  # fired by real-regex's release.yml right after a GitHub Release publishes
 
 permissions:
-  contents: write              # push the bump branch
-  pull-requests: write         # open the PR
+  contents: write              # push the bump directly to main (no PR)
 
 jobs:
   bump:
-    runs-on: ubuntu-latest
+    # Homebrew is preinstalled here (it is not on ubuntu-latest) — needed for the pre-push
+    # audit/install/test below, the actual safety net now that this pushes without a human review.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Open a PR for any formula behind its upstream latest release
+      - name: Bump any formula behind its upstream latest release (self-validated, push-direct)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           for f in Formula/*.rb; do
             name=$(basename "$f" .rb)
             cur_url=$(sed -nE 's/.*url "([^"]+)".*/\1/p' "$f" | head -1)
@@ -27,19 +32,19 @@ jobs:
             [ "$latest" = "$cur" ] && { echo "$name up to date ($cur)"; continue; }
             # forward-only guard: only bump if latest sorts strictly above current
             [ "$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -1)" = "$latest" ] || { echo "$name: latest $latest <= cur $cur, skip"; continue; }
-            branch="bump/$name-$latest"
-            git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && { echo "$branch exists, skip"; continue; }
             new_url="https://github.com/$repo/archive/refs/tags/v$latest.tar.gz"
             new_sha=$(curl -fsSL "$new_url" | sha256sum | awk '{print $1}')
             echo "$name: $cur -> $latest ($new_sha)"
-            git switch -c "$branch"
-            sed -i -E "s#url \"[^\"]+\"#url \"$new_url\"#" "$f"
-            sed -i -E "s#sha256 \"[0-9a-f]{64}\"#sha256 \"$new_sha\"#" "$f"
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -am "$name $latest"
-            git push -u origin "$branch"
-            gh pr create --base main --head "$branch" \
-              --title "$name $latest" \
-              --body "Automated bump of \`$name\` to v$latest (sha256 from the tagged tarball). Review and merge to publish."
+            # perl, not sed -i: GNU sed's "-i -E" and BSD/macOS sed's "-i '' -E" are not
+            # interchangeable, and this job runs on macOS — perl -pi behaves the same on both.
+            perl -pi -e "s#url \"[^\"]+\"#url \"$new_url\"#" "$f"
+            perl -pi -e "s#sha256 \"[0-9a-f]{64}\"#sha256 \"$new_sha\"#" "$f"
+            # Self-validate BEFORE pushing: push-direct has no human review and no PR-triggered CI
+            # to catch a broken formula (this repo has none), so this IS the safety net —
+            # lint (audit), a real build from the new source, and the formula's own test block.
+            brew audit --strict "$f"
+            brew install --build-from-source "$f"
+            brew test "$name"
+            git add "$f" && git commit -m "$name $latest"
+            git push origin HEAD:main
           done
