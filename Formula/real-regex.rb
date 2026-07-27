@@ -1,8 +1,8 @@
 class RealRegex < Formula
   desc "Header-only linear-time, ReDoS-safe regex engine for C++20"
   homepage "https://github.com/RECHE23/real-regex"
-  url "https://github.com/RECHE23/real-regex/archive/refs/tags/v2026.7.56.tar.gz"
-  sha256 "a9fd87b83e37c9c32705dc120614e534cfabcc0be31f760fdfade21d268825f7"
+  url "https://github.com/RECHE23/real-regex/archive/refs/tags/v2026.7.57.tar.gz"
+  sha256 "f5a84bffe4c69b9e932d83fb0c1d8e13beafc221a06045df19759121b607caee"
   license "MIT"
   head "https://github.com/RECHE23/real-regex.git", branch: "main"
 
