@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write              # push the bump directly to main (no PR)
+  issues: write                # a failed bump opens an issue: a scheduled run's failure went unseen for two days
 
 jobs:
   bump:
@@ -60,3 +61,19 @@ jobs:
             git add "$f" && git commit -m "$name $latest"
             git push origin HEAD:main
           done
+      - name: Open an issue on a failed bump
+        # A failed bump left real-regex unbumped for two days (2026-11-21 to 23) with no one told: an open issue, or a
+        # comment on the one still open, names the run.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="The formulae bump failed"
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number -q '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "The bump workflow failed: $RUN_URL"
+          fi
